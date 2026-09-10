@@ -3,6 +3,7 @@
 # This file is part of ANTS and is released under the BSD 3-Clause license.
 # See LICENSE.txt in the root of the repository for full licensing details.
 import ants.tests
+import iris.coord_systems
 from ants.coord_systems import OSGB, UM_SPHERE
 from ants.utils import transform_bbox
 
@@ -49,6 +50,17 @@ class TestSameCS(TestCommon, ants.tests.TestCase):
 class TestDiffCS(TestCommon, ants.tests.TestCase):
     # Different coordinate system tests.
     def test_points_inside_projected_crs(self):
+        """Project a bounding box from the OSGB to UM Sphere.
+
+        Notes
+        -----
+        The ants OSGB crs is a general transverse mercator crs in iris
+        which has different projection limits to the cartopy OSGB crs. The
+        projection limits for the ants OSGB are the general limits of a transverse
+        mercator and are larger than the cartopy OSGB crs which is restricted to a
+        valid domain over the UK.
+        """
+
         bbox_points = (-12, -12, 7e5, 13e5)
         bbox = self._gen_bbox(*bbox_points)
         res = transform_bbox(bbox, OSGB.crs, UM_SPHERE.crs)
@@ -57,7 +69,17 @@ class TestDiffCS(TestCommon, ants.tests.TestCase):
         self.assertArrayAlmostEqual(res.bounds, tar)
 
     def test_point_lie_beyond_crs_definition(self):
-        bbox = [(-180, -90), (180, -90), (180, 90), (-180, 90)]
+        """Test if the bbox lies outside of the valid domain.
+
+        As the OSGB crs is a regional crs (transverse Mercator), we only
+        get sensible projections within a restricted domain. The iris OSGB
+        returns the cartopy OSGB crs when converted to a cartopy projection.
+        """
+
+        osgb_crs = iris.coord_systems.OSGB()
+        bbox_points = (-180, -90, 180, 90)
+        bbox = self._gen_bbox(*bbox_points)
+
         msg = (
             "Attempting to project bounding box (GeogCS(6371229.0)) beyond "
             "the extent of the target coordinate system limits "
@@ -66,4 +88,23 @@ class TestDiffCS(TestCommon, ants.tests.TestCase):
         msg = msg.replace("(", r"\(")
         msg = msg.replace(")", r"\)")
         with self.assertRaisesRegex(ValueError, msg):
-            transform_bbox(bbox, UM_SPHERE.crs, OSGB.crs)
+            transform_bbox(bbox, UM_SPHERE.crs, osgb_crs)
+
+    def test_point_lie_beyond_crs_definition_2(self):
+        """Test if the bbox lies outside of the valid domain.
+
+        In this case we use a smaller box below the UK.
+        """
+        osgb_crs = iris.coord_systems.OSGB()
+        bbox_points = (-20, -60, 20, -30)
+        bbox = self._gen_bbox(*bbox_points)
+        msg = (
+            "Attempting to project bounding box (GeogCS(6371229.0)) beyond "
+            "the extent of the target coordinate system limits "
+            "(TransverseMercator(.*"
+        )
+        msg = msg.replace("(", r"\(")
+        msg = msg.replace(")", r"\)")
+
+        with self.assertRaisesRegex(ValueError, msg):
+            transform_bbox(bbox, UM_SPHERE.crs, osgb_crs)
