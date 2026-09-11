@@ -106,14 +106,9 @@ class TestPriorities(ants.tests.TestCase):
 
 
 class TestExceptions(ants.tests.TestCase):
-    @expectedFailure
     def test_no_datum_warning(self):
         # Save and reload a cube without a datum.
 
-        # If this test passes unexpectedly, we can complete ticket
-        # https://github.com/MetOffice/ANTS/issues/91.
-        # Currently, iris raises a warning even if the source file does not
-        # contain a datum. See https://github.com/SciTools/iris/issues/5749.
         cube = ants.tests.stock.geodetic((2, 2))
         assert cube.coord_system().datum is None
         with mock.patch("ants.fileformats.warnings.filterwarnings"):
