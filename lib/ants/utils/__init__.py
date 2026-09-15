@@ -107,17 +107,17 @@ def transform_bbox(points, src_crs, tgt_crs):
 
     # Check the bounds are invertible. Clipping of the domain can result in
     # non-physical bounds being returned.
-    inversion = cartopy_src_crs.transform_points(cartopy_tgt_crs,
-                                                 np.array([bounds[0], bounds[2]]),
-                                                 np.array([bounds[1], bounds[3]]))
+    inversion = cartopy_src_crs.transform_points(
+        cartopy_tgt_crs,
+        np.array([bounds[0], bounds[2]]),
+        np.array([bounds[1], bounds[3]]),
+    )
     if np.isnan(inversion).any():
         msg = (
             "The bounding box in the crs ({}) is not invertible"
             " to the original crs ({})."
         )
-        raise ValueError(msg.format(type(tgt_crs).__name__,
-                                    type(src_crs).__name__))
-
+        raise ValueError(msg.format(type(tgt_crs).__name__, type(src_crs).__name__))
 
     return tgt_geom
 

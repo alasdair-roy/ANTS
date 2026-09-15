@@ -2,11 +2,15 @@
 #
 # This file is part of ANTS and is released under the BSD 3-Clause license.
 # See LICENSE.txt in the root of the repository for full licensing details.
+import re
+
 import ants.tests
 import iris.coord_systems
+import numpy as np
+import pytest
 from ants.coord_systems import OSGB, UM_SPHERE
 from ants.utils import transform_bbox
-import re
+
 
 class TestCommon(object):
     @staticmethod
@@ -47,6 +51,38 @@ class TestSameCS(TestCommon, ants.tests.TestCase):
         self.assertArrayAlmostEqual(res.bounds, current_target)
 
 
+@pytest.mark.parametrize(
+    "lon_lat_shift",
+    [
+        [45, 15.0],
+        [90.0, 30.0],
+        [135.0, 45.0],
+        [180.0, 90.0],
+    ],
+    ids=["(45.0, 15.0)", "(90.0, 30.0)", "(135.0, 45.0)", "(180.0, 90.0)"],
+)
+def test_um_sphere_remains_invertible(lon_lat_shift):
+    """Test that polygons remain invertible for two geodetic crss."""
+
+    lon_shift, lat_shift = lon_lat_shift
+    # origin of the OSGB in lat, lon
+    lat_0, lon_0 = 0, 0
+
+    bbox_points = np.array(
+        [lon_0 - lon_shift, lat_0 - lat_shift, lon_0 + lon_shift, lat_0 + lat_shift]
+    )
+    bbox = [
+        (lon_0 - lon_shift, lat_0 - lat_shift),
+        (lon_0 + lon_shift, lat_0 - lat_shift),
+        (lon_0 + lon_shift, lat_0 + lat_shift),
+        (lon_0 - lon_shift, lat_0 + lat_shift),
+    ]
+
+    geoms = transform_bbox(bbox, UM_SPHERE.crs, UM_SPHERE.crs)
+    bounds = geoms.bounds
+    assert np.array_equal(bbox_points, bounds)
+
+
 class TestDiffCS(TestCommon, ants.tests.TestCase):
     # Different coordinate system tests.
     def setUp(self):
@@ -78,13 +114,34 @@ class TestDiffCS(TestCommon, ants.tests.TestCase):
         tar = [-9.49660933, 49.76607039, 3.63474423, 61.46518886]
         self.assertArrayAlmostEqual(res.bounds, tar)
 
+    def test_ants_osgb_not_invertible_global_poly(self):
+        """Test that a polygon spanning the globe is not invertible.
+
+        The generic Cartopy Transverse Mercator CRS uses fixed
+        projection-domain bounds of approximately
+        (-2e7, -1e7, 2e7, 1e7) metres.
+        """
+
+        # origin of the OSGB in lat, lon
+        lat_0, lon_0 = 0, 0
+        msg = re.escape(
+            "The bounding box in the crs (TransverseMercator) is not invertible"
+            " to the original crs (GeogCS)."
+        )
+        bbox_points = (lon_0 - 180.0, lat_0 - 90, lon_0 + 180, lat_0 + 90)
+        bbox = self._gen_bbox(*bbox_points)
+        with self.assertRaisesRegex(ValueError, msg):
+            transform_bbox(bbox, UM_SPHERE.crs, OSGB.crs)
+
     def test_point_lie_beyond_crs_definition(self):
-        """Test if the bbox lies outside of the valid domain.
+        """Test invalid projection with the iris OSGB.
 
         As the OSGB crs is a regional crs (transverse Mercator), we only
         get sensible projections within a restricted domain. The iris OSGB
         returns the cartopy OSGB crs when converted to a cartopy projection.
-        The limits of this domain are (0, 0, 7e5, 13e5).
+        The projection limits of this domain are (0, 0, 7e5, 13e5).
+
+        The bounds are not clipped in this case and instead return NaN.
         """
 
         osgb_crs = iris.coord_systems.OSGB()
@@ -94,47 +151,64 @@ class TestDiffCS(TestCommon, ants.tests.TestCase):
         with self.assertRaisesRegex(ValueError, self.msg):
             transform_bbox(bbox, UM_SPHERE.crs, osgb_crs)
 
-    def test_point_lie_beyond_crs_definition_ants_osgb(self):
-        """Test if the bbox lies outside of the valid domain.
+    def test_nan_bounds(self):
+        """Demonstrate some out-of-domain projections produce NaN bounds
+        rather than clipped bounds.
 
-        In this case we define a box which fails for the ants OSGB.
+        In this case we define a box which which produces bounds of NaN. Once
+        we are far from sensible projection limits, the behaviour becomes
+        inconsistent.
         """
-        bbox_points = (-100, -60, -80, -30)
+        # origin of the OSGB in lat, lon
+        lat_0, lon_0 = 49.0, -2.0
+
+        bbox_points = (lon_0 + 120, lat_0 - 70, lon_0 + 140, lat_0 - 50)
         bbox = self._gen_bbox(*bbox_points)
 
         with self.assertRaisesRegex(ValueError, self.msg):
             transform_bbox(bbox, UM_SPHERE.crs, OSGB.crs)
 
-    def test_ants_osgb_bounds_clipping(self):
-        """Demonstrate bounds clipping for different domains.
+    def test_no_nan_bounds(self):
+        """Demonstrate bounds clipping is fragile.
 
-        For large enough polygons which reach the projection limits of the
-        transverse mercator, the bounds are clipped to large values.
-        The values are much larger than the range of valid projection
-        for the transverse mercator.
-
-        For example, the transverse Mercator has two singularities at
-        lon = 90.0 and lon = -90.0. If we approach these the bounds will
-        be clipped. Similarly if we approach +/-90.0 in latitude. These bounds
-        are clipped at (-2e7, -1e7, 2e7, 1e7) and are not invertible.
+        Here we create a larger box which fails due to non-invertible bounds.
         """
-        test_cases = [
-            90, 110, 140, 160
-        ]
-
         # origin of the OSGB in lat, lon
         lat_0, lon_0 = 49.0, -2.0
+
+        bbox_points = (lon_0 - 120, lat_0 - 70, lon_0 + 140, lat_0 + 50)
+        bbox = self._gen_bbox(*bbox_points)
 
         msg = re.escape(
             "The bounding box in the crs (TransverseMercator) is not invertible"
             " to the original crs (GeogCS)."
         )
 
-        for lon_shift in test_cases:
-            with self.subTest():
-                bbox_points = (lon_0-lon_shift, lat_0-85, lon_0+lon_shift, lat_0+85)
-                bbox = self._gen_bbox(*bbox_points)
+        with self.assertRaisesRegex(ValueError, msg):
+            transform_bbox(bbox, UM_SPHERE.crs, OSGB.crs)
 
-                with self.assertRaisesRegex(ValueError, msg):
-                    transform_bbox(bbox, UM_SPHERE.crs, OSGB.crs)
 
+@pytest.mark.parametrize("lon_shift", [85.0, 90.0, 145.0, 180.0])
+def test_ants_osgb_not_invertible(lon_shift):
+    """Test polygons beyond valid projection limits are not invertible.
+
+    For large enough polygons the bounds of the polygon become
+    the bounds of the domain at (-2e7, -1e7, 2e7, 1e7) metres.
+    """
+
+    # origin of the OSGB in lat, lon
+    lat_0, lon_0 = 49.0, -2.0
+
+    msg = re.escape(
+        "The bounding box in the crs (TransverseMercator) is not invertible"
+        " to the original crs (GeogCS)."
+    )
+
+    bbox = [
+        (lon_0 - lon_shift, lat_0 - 85),
+        (lon_0 + lon_shift, lat_0 - 85),
+        (lon_0 + lon_shift, lat_0 + 85),
+        (lon_0 - lon_shift, lat_0 + 85),
+    ]
+    with pytest.raises(ValueError, match=msg):
+        transform_bbox(bbox, UM_SPHERE.crs, OSGB.crs)
