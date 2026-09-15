@@ -168,6 +168,7 @@ class TestDiffCS(TestCommon, ants.tests.TestCase):
         with self.assertRaisesRegex(ValueError, self.msg):
             transform_bbox(bbox, UM_SPHERE.crs, OSGB.crs)
 
+
 @pytest.mark.parametrize("lon_shift", [85.0, 90.0, 145.0, 180.0])
 def test_ants_osgb_not_invertible(lon_shift):
     """Test polygons that are clipped to the domain boundary are

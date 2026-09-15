@@ -5,7 +5,6 @@
 import tempfile
 import unittest.mock as mock
 import warnings
-from unittest import expectedFailure
 
 import ants
 import ants.io.save as save

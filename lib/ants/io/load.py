@@ -57,7 +57,6 @@ See Also
 """
 
 import copy
-import warnings
 from contextlib import contextmanager
 from functools import wraps
 
